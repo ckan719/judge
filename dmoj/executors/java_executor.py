@@ -1,5 +1,4 @@
 import errno
-import glob
 import os
 import re
 import subprocess
@@ -25,6 +24,9 @@ repackage = re.compile(r'\bpackage\s+([^.;]+(?:\.[^.;]+)*?);', re.U)
 reexception = re.compile(r'7257b50d-e37a-4664-b1a5-b1340b4206c0: (.*?)$', re.U | re.M)
 
 JAVA_SANDBOX = os.path.abspath(os.path.join(os.path.dirname(__file__), 'java_sandbox.jar'))
+
+with open(os.path.join(os.path.dirname(__file__), 'java-security.policy'), 'r') as policy_file:
+    policy = policy_file.read()
 
 
 def find_class(source):
@@ -60,6 +62,7 @@ class JavaExecutor(SingleDigitVersionMixin, CompiledExecutor):
     syscalls = ['pread64', 'clock_nanosleep', 'socketpair', ('procctl', handle_procctl), 'setrlimit', 'thr_set_name']
 
     jvm_regex: Optional[str] = None
+    security_policy = policy
 
     def __init__(self, problem_id, source_code, **kwargs):
         self._class_name = None
@@ -69,6 +72,9 @@ class JavaExecutor(SingleDigitVersionMixin, CompiledExecutor):
         super().create_files(problem_id, source_code, *args, **kwargs)
 
         self._agent_file = JAVA_SANDBOX
+        self._policy_file = self._file('security.policy')
+        with open(self._policy_file, 'w') as file:
+            file.write(self.security_policy)
 
     def get_compile_popen_kwargs(self):
         return {'executable': self.get_compiler()}
@@ -85,8 +91,7 @@ class JavaExecutor(SingleDigitVersionMixin, CompiledExecutor):
             + [ExactFile(self._agent_file)]
             + [ExactDir(str(parent)) for parent in PurePath(self._agent_file).parents]
         )
-        vm_parent = Path(os.path.realpath(self.get_vm())).parent.parent
-        vm_config = Path(glob.glob(f'{vm_parent}/**/jvm.cfg', recursive=True)[0])
+        vm_config = Path(self.get_vm()).parent.parent / 'lib' / 'jvm.cfg'
         if vm_config.is_symlink():
             fs += [RecursiveDir(os.path.dirname(os.path.realpath(vm_config)))]
         return fs
@@ -95,10 +100,12 @@ class JavaExecutor(SingleDigitVersionMixin, CompiledExecutor):
         return super().get_write_fs() + [ExactFile(os.path.join(self._dir, 'submission_jvm_crash.log'))]
 
     def get_agent_flag(self):
-        hints = [*self._hints]
+        agent_flag = '-javaagent:%s=policy:%s' % (self._agent_file, self._policy_file)
+        for hint in self._hints:
+            agent_flag += ',%s' % hint
         if self.unbuffered:
-            hints.append('nobuf')
-        return f'-javaagent:{self._agent_file}={",".join(hints)}'
+            agent_flag += ',nobuf'
+        return agent_flag
 
     def get_cmdline(self, **kwargs):
         # 128m is equivalent to 1<<27 in Thread constructor

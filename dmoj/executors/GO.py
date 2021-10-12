@@ -42,8 +42,6 @@ func main() {
             'CGO_ENABLED': '0',
             # We need GOCACHE to compile on Debian 10.0+.
             'GOCACHE': os.path.join(self._dir, '.cache'),
-            # We need to set GOPATH to something on Go 1.16+.
-            'GOPATH': '/nonexistent-path',
         }
 
     def get_compile_args(self):

@@ -13,7 +13,7 @@ __all__ = ['Process', 'Debugger', 'bsd_get_proc_cwd', 'bsd_get_proc_fdno', 'MAX_
            'PTBOX_ABI_X86', 'PTBOX_ABI_X64', 'PTBOX_ABI_X32', 'PTBOX_ABI_ARM', 'PTBOX_ABI_ARM64',
            'PTBOX_ABI_FREEBSD_X64', 'PTBOX_ABI_INVALID', 'PTBOX_ABI_COUNT',
            'PTBOX_SPAWN_FAIL_NO_NEW_PRIVS', 'PTBOX_SPAWN_FAIL_SECCOMP', 'PTBOX_SPAWN_FAIL_TRACEME',
-           'PTBOX_SPAWN_FAIL_EXECVE']
+           'PTBOX_SPAWN_FAIL_EXECVE', 'IS_WSL1']
 
 
 cdef extern from 'ptbox.h' nogil:
@@ -21,7 +21,7 @@ cdef extern from 'ptbox.h' nogil:
     long ptrace_traceme()
 
     ctypedef int (*pt_handler_callback)(void *context, int syscall)
-    ctypedef void (*pt_syscall_return_callback)(void *context, pid_t pid, int syscall)
+    ctypedef void (*pt_syscall_return_callback)(void *context, int syscall)
     ctypedef int (*pt_fork_handler)(void *context)
     ctypedef int (*pt_event_callback)(void *context, int event, unsigned long param)
 
@@ -66,8 +66,11 @@ cdef extern from 'ptbox.h' nogil:
         double wall_clock_time()
         const rusage *getrusage()
         bint was_initialized()
+        bool use_seccomp()
+        bool use_seccomp(bool enabled)
 
     cdef bint PTBOX_FREEBSD
+    cdef bint PTBOX_SECCOMP
     cdef int MAX_SYSCALL
 
     cdef int PTBOX_EVENT_ATTACH
@@ -115,6 +118,7 @@ cdef extern from 'helper.h' nogil:
         int stdin_
         int stdout_
         int stderr_
+        bool use_seccomp
         int abi_for_seccomp
         int *seccomp_handlers
 
@@ -128,6 +132,8 @@ cdef extern from 'helper.h' nogil:
         PTBOX_SPAWN_FAIL_SECCOMP
         PTBOX_SPAWN_FAIL_TRACEME
         PTBOX_SPAWN_FAIL_EXECVE
+
+        IS_WSL1
 
     int _memory_fd_create "memory_fd_create"()
     int _memory_fd_seal "memory_fd_seal"(int fd)
@@ -149,8 +155,8 @@ cdef int pt_child(void *context) nogil:
 cdef int pt_syscall_handler(void *context, int syscall) nogil:
     return (<Process>context)._syscall_handler(syscall)
 
-cdef void pt_syscall_return_handler(void *context, pid_t pid, int syscall) with gil:
-    (<Debugger>context)._on_return(pid, syscall)
+cdef void pt_syscall_return_handler(void *context, int syscall) with gil:
+    (<Debugger>context)._on_return(syscall)
 
 cdef int pt_event_handler(void *context, int event, unsigned long param) nogil:
     return (<Process>context)._event_handler(event, param)
@@ -229,7 +235,6 @@ cdef class Debugger:
     def __cinit__(self, Process process):
         self.thisptr = new pt_debugger()
         self.process = process
-        self.on_return_callback = {}
 
     def __dealloc__(self):
         del self.thisptr
@@ -244,7 +249,9 @@ cdef class Debugger:
 
     @syscall.setter
     def syscall(self, int value):
-        if PTBOX_FREEBSD and value == -1:
+        # When using seccomp, -1 as syscall means "skip"; when we are not,
+        # we swap with a harmless syscall without side-effects (getpid).
+        if not self.process._use_seccomp() and value == -1:
             value = self.noop_syscall_id
         global errno
         errno = self.thisptr.syscall(value)
@@ -390,12 +397,12 @@ cdef class Debugger:
         return self.thisptr.abi()
 
     def on_return(self, callback):
-        self.on_return_callback[self.tid] = callback
+        self.on_return_callback = callback
         self.thisptr.on_return(pt_syscall_return_handler, <void*>self)
 
-    cdef _on_return(self, pid_t pid, int syscall) with gil:
-        self.on_return_callback[pid]()
-        del self.on_return_callback[pid]
+    cdef _on_return(self, int syscall) with gil:
+        self.on_return_callback()
+        self.on_return_callback = None
 
 
 cdef class Process:
@@ -491,7 +498,8 @@ cdef class Process:
             config.argv = alloc_byte_array(args)
             config.envp = alloc_byte_array(env)
 
-            if not PTBOX_FREEBSD:
+            config.use_seccomp = self._use_seccomp()
+            if config.use_seccomp:
                 handlers = self._get_seccomp_handlers()
                 assert len(handlers) == MAX_SYSCALL
 
@@ -516,6 +524,18 @@ cdef class Process:
         self._exitcode = exitcode
         self._exited = True
         return self._exitcode
+
+    cdef inline bool _use_seccomp(self):
+        return self.process.use_seccomp()
+
+    @property
+    def use_seccomp(self):
+        return self.process.use_seccomp()
+
+    @use_seccomp.setter
+    def use_seccomp(self, bool enabled):
+        if not self.process.use_seccomp(enabled):
+            raise RuntimeError("Can't change whether seccomp is used after process is created.")
 
     @property
     def was_initialized(self):

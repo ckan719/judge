@@ -1,4 +1,9 @@
+import os.path
+
 from dmoj.executors.java_executor import JavaExecutor
+
+with open(os.path.join(os.path.dirname(__file__), 'java-security.policy')) as policy_file:
+    policy = policy_file.read()
 
 
 class Executor(JavaExecutor):
@@ -8,6 +13,7 @@ class Executor(JavaExecutor):
     compiler = 'kotlinc'
     compiler_time_limit = 20
     vm = 'kotlin_vm'
+    security_policy = policy
 
     test_program = """\
 fun main(args: Array<String>) {

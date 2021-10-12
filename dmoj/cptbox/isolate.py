@@ -293,10 +293,10 @@ class IsolateTracer(dict):
                     normalized,
                     real,
                 )
-                return file, ACCESS_EACCES
+                return file, ACCESS_EPERM
 
         if not fs_jail.check(normalized):
-            return normalized, ACCESS_EACCES
+            return normalized, ACCESS_EPERM
 
         if normalized != real:
             proc_dir = f'/proc/{debugger.pid}'
@@ -304,7 +304,7 @@ class IsolateTracer(dict):
                 real = os.path.join('/proc/self', os.path.relpath(real, proc_dir))
 
             if not fs_jail.check(real):
-                return real, ACCESS_EACCES
+                return real, ACCESS_EPERM
 
         return real, None
 

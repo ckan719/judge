@@ -22,7 +22,6 @@
 #else
 // No ASLR on FreeBSD... not as of 11.0, anyway
 #   include <sys/personality.h>
-#   include <sys/prctl.h>
 #endif
 
 #if defined(__FreeBSD__) || (defined(__APPLE__) && defined(__MACH__))
@@ -47,9 +46,12 @@ int cptbox_child_run(const struct child_config *config) {
     // There is no ASLR on FreeBSD, but disable it elsewhere
     if (config->personality > 0)
         personality(config->personality);
+#endif
 
+#ifdef PR_SET_NO_NEW_PRIVS  // Since Linux 3.5
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0))
         return PTBOX_SPAWN_FAIL_NO_NEW_PRIVS;
+#endif
 
 #ifdef PR_SET_SPECULATION_CTRL  // Since Linux 4.17
     // Turn off Spectre Variant 4 protection in case it is turned on; we don't
@@ -57,7 +59,6 @@ int cptbox_child_run(const struct child_config *config) {
     // best-effort attempt, and don't stop the submission from running if the
     // prctl fails.
     prctl(PR_SET_SPECULATION_CTRL, PR_SPEC_STORE_BYPASS, PR_SPEC_ENABLE, 0, 0);
-#endif
 #endif
 
     if (config->stdin_ >= 0)  dup2(config->stdin_, 0);
@@ -72,46 +73,48 @@ int cptbox_child_run(const struct child_config *config) {
 
     kill(getpid(), SIGSTOP);
 
-#if !PTBOX_FREEBSD
-    scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_TRACE(0));
-    if (!ctx) {
-        fprintf(stderr, "Failed to initialize seccomp context!");
-        goto seccomp_fail;
-    }
-
-    int rc;
-    // By default, the native architecture is added to the filter already, so we add all the non-native ones.
-    // This will bloat the filter due to additional architectures, but a few extra compares in the BPF matters
-    // very little when syscalls are rare and other overhead is expensive.
-    for (uint32_t *arch = pt_debugger::seccomp_non_native_arch_list; *arch; ++arch) {
-        if ((rc = seccomp_arch_add(ctx, *arch))) {
-            fprintf(stderr, "seccomp_arch_add(%u): %s\n", *arch, strerror(-rc));
-            // This failure is not fatal, it'll just cause the syscall to trap anyway.
+#if PTBOX_SECCOMP
+    if (config->use_seccomp) {
+        scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_TRACE(0));
+        if (!ctx) {
+            fprintf(stderr, "Failed to initialize seccomp context!");
+            goto seccomp_fail;
         }
-    }
 
-    for (int syscall = 0; syscall < MAX_SYSCALL; syscall++) {
-        int handler = config->seccomp_handlers[syscall];
-        if (handler == 0) {
-            if ((rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0))) {
-                fprintf(stderr, "seccomp_rule_add(..., SCMP_ACT_ALLOW, %d): %s\n", syscall, strerror(-rc));
-                // This failure is not fatal, it'll just cause the syscall to trap anyway.
-            }
-        } else if (handler > 0) {
-            if ((rc = seccomp_rule_add(ctx, SCMP_ACT_ERRNO(handler), syscall, 0))) {
-                fprintf(stderr, "seccomp_rule_add(..., SCMP_ACT_ERRNO(%d), %d): %s\n",
-                    handler, syscall, strerror(-rc));
+        int rc;
+        // By default, the native architecture is added to the filter already, so we add all the non-native ones.
+        // This will bloat the filter due to additional architectures, but a few extra compares in the BPF matters
+        // very little when syscalls are rare and other overhead is expensive.
+        for (uint32_t *arch = pt_debugger::seccomp_non_native_arch_list; *arch; ++arch) {
+            if ((rc = seccomp_arch_add(ctx, *arch))) {
+                fprintf(stderr, "seccomp_arch_add(%u): %s\n", *arch, strerror(-rc));
                 // This failure is not fatal, it'll just cause the syscall to trap anyway.
             }
         }
-    }
 
-    if ((rc = seccomp_load(ctx))) {
-        fprintf(stderr, "seccomp_load: %s\n", strerror(-rc));
-        goto seccomp_fail;
-    }
+        for (int syscall = 0; syscall < MAX_SYSCALL; syscall++) {
+            int handler = config->seccomp_handlers[syscall];
+            if (handler == 0) {
+                if ((rc = seccomp_rule_add(ctx, SCMP_ACT_ALLOW, syscall, 0))) {
+                    fprintf(stderr, "seccomp_rule_add(..., SCMP_ACT_ALLOW, %d): %s\n", syscall, strerror(-rc));
+                    // This failure is not fatal, it'll just cause the syscall to trap anyway.
+                }
+            } else if (handler > 0) {
+                if ((rc = seccomp_rule_add(ctx, SCMP_ACT_ERRNO(handler), syscall, 0))) {
+                    fprintf(stderr, "seccomp_rule_add(..., SCMP_ACT_ERRNO(%d), %d): %s\n",
+                        handler, syscall, strerror(-rc));
+                    // This failure is not fatal, it'll just cause the syscall to trap anyway.
+                }
+            }
+        }
 
-    seccomp_release(ctx);
+        if ((rc = seccomp_load(ctx))) {
+            fprintf(stderr, "seccomp_load: %s\n", strerror(-rc));
+            goto seccomp_fail;
+        }
+
+        seccomp_release(ctx);
+    }
 #endif
 
     // All these limits should be dropped after initializing seccomp, since seccomp allocates

@@ -1,0 +1,14 @@
+archive: badtriangle.zip
+test_cases:
+- in: badtriangle.1.in
+  out: badtriangle.1.out
+  points: 5
+- in: badtriangle.2.in
+  out: badtriangle.2.out
+  points: 10
+- in: badtriangle.3.in
+  out: badtriangle.3.out
+  points: 15
+- in: badtriangle.4.out
+  out: badtriangle.4.out
+  points: 70

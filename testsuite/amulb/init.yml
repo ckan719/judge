@@ -1,0 +1,22 @@
+archive: amulb.zip
+
+symlinks: {
+  in_link: /dev/stdin
+}
+
+hints: [nobigmath]
+
+pretest_test_cases:
+- {in: amulb.1.in, out: amulb.1.out, points: 5}
+- {in: amulb.2.in, out: amulb.2.out, points: 20}
+- {in: amulb.3.in, out: amulb.3.out, points: 75}
+- {in: amulb.1.in, out: amulb.1.out, points: 5}
+- {in: amulb.2.in, out: amulb.2.out, points: 20}
+- {in: amulb.3.in, out: amulb.3.out, points: 75}
+- {in: amulb.1.in, out: amulb.1.out, points: 5}
+- {in: amulb.2.in, out: amulb.2.out, points: 20}
+- {in: amulb.3.in, out: amulb.3.out, points: 75}
+test_cases:
+- {in: amulb.1.in, out: amulb.1.out, points: 5}
+- {in: amulb.2.in, out: amulb.2.out, points: 20}
+- {in: amulb.3.in, out: amulb.3.out, points: 75}

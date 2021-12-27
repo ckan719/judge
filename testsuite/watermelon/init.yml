@@ -1,0 +1,18 @@
+archive: matermelon.zip
+test_cases:
+- in: watermelon.1.in
+  out: watermelon.1.out
+  points: 2
+- in: watermelon.2.in
+  out: watermelon.2.out
+  points: 2
+- in: watermelon.3.in
+  out: watermelon.3.out
+  points: 2
+- in: watermelon.4.in
+  out: watermelon.4.out
+  points: 2
+- in: watermelon.5.in
+  out: watermelon.5.out
+  points: 2
+

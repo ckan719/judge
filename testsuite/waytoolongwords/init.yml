@@ -1,0 +1,18 @@
+archive: waytoolongwords.zip
+test_cases:
+- in: waytoolongwords.1.in
+  out: waytoolongwords.1.out
+  points: 2
+- in: waytoolongwords.2.in
+  out: waytoolongwords.2.out
+  points: 2
+- in: waytoolongwords.3.in
+  out: waytoolongwords.3.out
+  points: 2
+- in: waytoolongwords.4.in
+  out: waytoolongwords.4.out
+  points: 2
+- in: waytoolongwords.5.in
+  out: waytoolongwords.5.out
+  points: 2
+
